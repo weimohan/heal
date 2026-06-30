@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🎂 19岁生日 - 赛博朋克</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;font-family:'Orbitron',sans-serif;color:#fff;user-select:none;-webkit-user-select:none}
+
+/* ===== CRT Scanlines ===== */
+#crt-overlay{pointer-events:none;position:fixed;inset:0;z-index:9999;background:repeating-linear-gradient(0deg,rgba(0,255,255,.03) 0,rgba(0,255,255,.03) 2px,transparent 2px,transparent 4px);animation:crt-flicker .1s infinite}
+
+@keyframes crt-flicker{0%,100%{opacity:1}50%{opacity:.97}}
+
+/* ===== Scene System ===== */
+.scene{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5vw;opacity:0;visibility:hidden;transition:opacity .8s,visibility .8s;overflow:hidden}
+.scene.active{opacity:1;visibility:visible}
+.scene.exit{opacity:0;visibility:hidden}
+
+/* ===== Scene 1 ===== */
+#scene1{background:#0a0a0f;z-index:10}
+.terminal{width:90%;max-width:360px;font-family:'Courier New',monospace;font-size:clamp(12px,3.2vw,16px);color:#39ff14;text-shadow:0 0 8px #39ff14;line-height:1.8;min-height:40vh}
+.terminal .line{opacity:0;white-space:nowrap;overflow:hidden}
+.terminal .line.done{opacity:1}
+.terminal .cursor{display:inline-block;width:8px;height:1.1em;background:#39ff14;margin-left:2px;animation:blink .6s step-end infinite;vertical-align:text-bottom}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+.loading-bar-wrap{width:80%;max-width:300px;height:6px;background:#1a1a2e;border-radius:3px;margin:20px auto;overflow:hidden;opacity:0;transition:opacity .5s}
+.loading-bar-wrap.show{opacity:1}
+.loading-bar{height:100%;width:0%;background:linear-gradient(90deg,#39ff14,#00ffff);border-radius:3px;box-shadow:0 0 20px #00ffff;transition:width .03s linear}
+
+.glitch-text{font-size:clamp(18px,5vw,32px);font-weight:900;color:#ff00ff;text-shadow:0 0 10px #ff00ff,0 0 30px #ff00ff,0 0 60px #ff00ff;text-align:center;opacity:0;transition:opacity .5s;padding:0 10px}
+.glitch-text.show{opacity:1}
+.glitch-text.active{animation:glitch .4s ease-in-out 3}
+@keyframes glitch{
+  0%{transform:translate(0);clip-path:inset(0 0 0 0)}
+  10%{transform:translate(-3px,2px);clip-path:inset(20% 0 60% 0)}
+  20%{transform:translate(3px,-1px);clip-path:inset(40% 0 40% 0)}
+  30%{transform:translate(-5px,3px);clip-path:inset(10% 0 70% 0)}
+  40%{transform:translate(5px,-2px);clip-path:inset(60% 0 20% 0)}
+  50%{transform:translate(-2px,1px);clip-path:inset(30% 0 50% 0)}
+  60%{transform:translate(2px,-3px);clip-path:inset(0 0 90% 0)}
+  70%{transform:translate(-4px,2px);clip-path:inset(70% 0 10% 0)}
+  80%{transform:translate(4px,-1px);clip-path:inset(50% 0 30% 0)}
+  90%{transform:translate(-1px,3px);clip-path:inset(90% 0 0 0)}
+  100%{transform:translate(0);clip-path:inset(0 0 0 0)}
+}
+
+.hint{position:absolute;bottom:8vh;font-size:clamp(11px,2.8vw,14px);color:rgba(0,255,255,.5);text-align:center;animation:fadeInOut 2s ease-in-out infinite;width:80%;max-width:300px}
+@keyframes fadeInOut{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* ===== Scene 2 ===== */
+#scene2{background:#0a0a0f;z-index:20}
+#fireworks-canvas{position:fixed;inset:0;z-index:21;pointer-events:auto;cursor:crosshair}
+
+/* ===== Scene 3: 赛博诗篇 ===== */
+#scene3{background:#0a0a0f;z-index:30}
+.grid-bg{position:absolute;inset:0;background-image:
+  linear-gradient(rgba(0,255,255,.05) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(0,255,255,.05) 1px,transparent 1px);
+  background-size:40px 40px;transform:rotateX(60deg);transform-origin:center bottom;opacity:.25}
+
+/* 赛博诗篇 - 解码传输效果 */
+.poem-terminal{position:relative;width:88%;max-width:340px;z-index:1;padding:20px;border:1px solid rgba(0,255,255,.15);border-radius:4px;background:rgba(0,5,15,.6);box-shadow:0 0 30px rgba(0,255,255,.05);margin-top:-8vh}
+.poem-terminal::before{content:'▸ CYBERPOEM.exe';position:absolute;top:-10px;left:10px;font-family:'Orbitron',sans-serif;font-size:clamp(8px,2vw,10px);color:rgba(0,255,255,.4);background:#0a0a0f;padding:0 6px}
+.poem-terminal::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#00ffff,#ff00ff,#00ffff,transparent);opacity:.5}
+
+.poem-line-wrap{overflow:hidden;min-height:24px;margin:6px 0;position:relative}
+.poem-line{font-size:clamp(16px,4vw,22px);font-family:'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.8;opacity:0;transform:translateX(-20px);transition:none;position:relative;display:inline-block}
+.poem-line.show{opacity:1;transform:translateX(0);transition:opacity .6s,transform .6s cubic-bezier(.22,1,.36,1)}
+
+/* Glitch decode effect */
+.poem-line.glitch-in{animation:poemGlitch .4s ease-in-out}
+@keyframes poemGlitch{
+  0%{opacity:0;transform:translateX(-30px) skewX(0deg);text-shadow:0 0 0 transparent}
+  20%{opacity:1;transform:translateX(5px) skewX(-5deg);text-shadow:-3px 0 #ff00ff,3px 0 #00ffff}
+  40%{transform:translateX(-3px) skewX(3deg);text-shadow:2px 0 #00ffff,-2px 0 #ff00ff}
+  60%{transform:translateX(2px) skewX(-2deg);text-shadow:-1px 0 #ff00ff}
+  80%{transform:translateX(-1px) skewX(1deg);text-shadow:0 0 0 transparent}
+  100%{opacity:1;transform:translateX(0) skewX(0deg)}
+}
+.poem-line.static-glitch{animation:staticNoise .08s infinite;color:rgba(0,255,255,.3)!important}
+@keyframes staticNoise{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* 浮动装饰 */
+.poem-float{position:absolute;font-size:clamp(14px,3.5vw,20px);opacity:0;animation:poemFloat 6s ease-in-out infinite;pointer-events:none;z-index:0;text-shadow:0 0 10px currentColor}
+@keyframes poemFloat{0%{opacity:0;transform:translateY(0)}20%{opacity:.4}80%{opacity:.3}100%{opacity:0;transform:translateY(-40px)}}
+
+/* 诗行颜色 */
+.poem-line.l1{color:#00ffff;text-shadow:0 0 10px rgba(0,255,255,.4),0 0 30px rgba(0,255,255,.1)}
+.poem-line.l2{color:#ff00ff;text-shadow:0 0 10px rgba(255,0,255,.4),0 0 30px rgba(255,0,255,.1)}
+.poem-line.l3{color:#39ff14;text-shadow:0 0 10px rgba(57,255,20,.4),0 0 30px rgba(57,255,20,.1)}
+.poem-line.l4{color:#ffff00;text-shadow:0 0 10px rgba(255,255,0,.4),0 0 30px rgba(255,255,0,.1);font-weight:700}
+
+/* 数据传输指示器 */
+.xfer-indicator{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,255,255,.08);opacity:0;transition:opacity .5s;justify-content:center}
+.xfer-indicator.show{opacity:1}
+.xfer-dot{width:6px;height:6px;border-radius:50%;background:#39ff14;animation:dotPulse 1s ease-in-out infinite}
+.xfer-dot:nth-child(2){animation-delay:.3s;background:#00ffff}
+.xfer-dot:nth-child(3){animation-delay:.6s;background:#ff00ff}
+@keyframes dotPulse{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:1;transform:scale(1.3)}}
+.xfer-label{font-family:'Orbitron',sans-serif;font-size:clamp(8px,2vw,10px);color:rgba(0,255,255,.3);letter-spacing:2px}
+
+/* ===== Scene 4 ===== */
+#scene4{background:#0a0a0f;z-index:50}
+.data-panel{width:88%;max-width:340px;padding:24px 20px;border:1px solid rgba(0,255,255,.3);border-radius:12px;background:rgba(0,255,255,.03);box-shadow:0 0 30px rgba(0,255,255,.1),inset 0 0 30px rgba(0,255,255,.03);position:relative;overflow:hidden}
+.data-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#00ffff,transparent);animation:scanBar 2s ease-in-out infinite}
+@keyframes scanBar{0%,100%{left:-100%}50%{left:100%}}
+
+/* 浮动生日元素 */
+.float-emoji{position:absolute;font-size:clamp(18px,4vw,24px);opacity:0;animation:floatUp 4s ease-in-out infinite;pointer-events:none;z-index:1;font-family:'Orbitron',sans-serif;color:rgba(0,255,255,.4)}
+@keyframes floatUp{0%{opacity:0;transform:translateY(0)}20%{opacity:.6}80%{opacity:.4}100%{opacity:0;transform:translateY(-60px)}}
+
+.panel-label{font-size:clamp(10px,2.5vw,12px);color:rgba(0,255,255,.5);letter-spacing:3px;text-align:center;margin-bottom:12px}
+.quote-text{font-size:clamp(13px,3.2vw,16px);color:#ddd;line-height:1.9;text-align:center;font-family:'PingFang SC','Microsoft YaHei',sans-serif;opacity:0;transition:opacity 1.2s}
+.quote-text.show{opacity:1}
+.quote-text .glow{color:#ff00ff;text-shadow:0 0 10px #ff00ff}
+.quote-text .cyan{color:#00ffff;text-shadow:0 0 10px #00ffff}
+
+.birthday-title{font-size:clamp(18px,5vw,28px);font-weight:900;text-align:center;margin-top:20px;color:#fff;text-shadow:0 0 10px #00ffff,0 0 30px #ff00ff,0 0 60px #00ffff;opacity:0;transition:opacity 1s}
+.birthday-title.show{opacity:1}
+.birthday-title.glitch{animation:glitch .5s ease-in-out 2}
+
+.birthday-sub{font-size:clamp(12px,3vw,16px);font-family:'PingFang SC','Microsoft YaHei',sans-serif;color:rgba(255,255,255,.3);text-align:center;margin-top:6px;opacity:0;transition:opacity 1.5s}
+.birthday-sub.show{opacity:1}
+
+.replay-btn{margin-top:24px;padding:12px 32px;font-family:'Orbitron',sans-serif;font-size:clamp(11px,2.8vw,14px);color:#00ffff;background:transparent;border:1px solid #00ffff;border-radius:6px;cursor:pointer;transition:all .3s;opacity:0;box-shadow:0 0 10px rgba(0,255,255,.2)}
+.replay-btn.show{opacity:1}
+.replay-btn:active{background:rgba(0,255,255,.15);box-shadow:0 0 30px rgba(0,255,255,.4)}
+
+/* ===== Scene 5 ===== */
+#scene5{background:#0a0a0f;z-index:40}
+#nebula-canvas{position:fixed;inset:0;z-index:51;pointer-events:none}
+.nebula-title{position:absolute;top:6vh;left:0;right:0;text-align:center;z-index:52;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+.nebula-sign{font-size:clamp(36px,10vw,56px);display:block;animation:neonPulse 2s ease-in-out infinite}
+@keyframes neonPulse{0%,100%{text-shadow:0 0 10px rgba(0,255,255,.3),0 0 30px rgba(0,255,255,.1)}50%{text-shadow:0 0 20px rgba(0,255,255,.6),0 0 50px rgba(0,255,255,.2)}}
+.nebula-text{font-family:'Orbitron',sans-serif;font-size:clamp(14px,3.5vw,20px);color:#00ffff;text-shadow:0 0 10px rgba(0,255,255,.4)}
+.nebula-sub{font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:clamp(10px,2.5vw,13px);color:rgba(255,255,255,.3)}
+.nebula-hint{position:absolute;bottom:8vh;left:0;right:0;text-align:center;font-family:'Orbitron',sans-serif;font-size:clamp(10px,2.5vw,12px);color:rgba(0,255,255,.3);z-index:52;opacity:0;transition:opacity 1s}
+.nebula-hint.show{opacity:1}
+
+/* ===== Scene 6: 祝福墙 ===== */
+#scene6{background:#0a0a0f;z-index:60}
+.wall-title{position:absolute;top:4vh;left:0;right:0;text-align:center;font-family:'Orbitron',sans-serif;font-size:clamp(14px,3.5vw,18px);color:#00ffff;text-shadow:0 0 15px rgba(0,255,255,.3);z-index:61;letter-spacing:3px}
+.wall-container{position:fixed;inset:0;z-index:61;pointer-events:none}
+.wall-msg{position:absolute;font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:clamp(12px,3vw,16px);opacity:0;animation:wallFloat 8s ease-in-out infinite;white-space:nowrap;pointer-events:none;text-shadow:0 0 8px currentColor}
+@keyframes wallFloat{0%{opacity:0;transform:translateY(0)}10%{opacity:.7}90%{opacity:.5}100%{opacity:0;transform:translateY(-120px)}}
+.wall-bottom{position:absolute;bottom:8vh;left:5%;right:5%;z-index:62;display:flex;flex-direction:column;align-items:center;gap:12px}
+.wall-input-area{display:flex;gap:8px;width:100%;max-width:360px}
+.wall-input{flex:1;padding:12px 16px;background:rgba(0,255,255,.05);border:1px solid rgba(0,255,255,.2);border-radius:6px;font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:clamp(12px,3vw,14px);color:#fff;outline:none;transition:border .3s}
+.wall-input:focus{border-color:#00ffff;box-shadow:0 0 15px rgba(0,255,255,.1)}
+.wall-input::placeholder{color:rgba(255,255,255,.15)}
+.wall-send{padding:12px 18px;background:transparent;border:1px solid #ff00ff;border-radius:6px;color:#ff00ff;font-family:'Orbitron',sans-serif;font-size:clamp(11px,2.5vw,13px);cursor:pointer;transition:all .3s;white-space:nowrap}
+.wall-send:active{background:rgba(255,0,255,.15);box-shadow:0 0 20px rgba(255,0,255,.2)}
+.wall-bottom .replay-btn{margin-top:0}
+
+/* ===== Music Tap ===== */
+#music-tap{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;background:rgba(10,10,15,.85);cursor:pointer}
+#music-tap.show{display:flex}
+#music-tap span{font-family:'Orbitron',sans-serif;font-size:clamp(14px,3.5vw,18px);color:#00ffff;text-shadow:0 0 20px #00ffff;animation:fadeInOut 2s ease-in-out infinite;text-align:center;padding:20px}
+</style>
+</head>
+<body>
+
+<!-- CRT Overlay -->
+<div id="crt-overlay"></div>
+
+<!-- Music Tap -->
+<div id="music-tap"><span>[ 点击屏幕，开启赛博音乐 ]</span></div>
+
+<audio id="bgm" loop>
+  <!-- 替换为你的 Synthwave/赛博朋克 电子乐 mp3 链接 -->
+  <source src="" type="audio/mpeg">
+</audio>
+
+<!-- ===== Scene 1: 系统破解 ===== -->
+<div id="scene1" class="scene active">
+  <div class="terminal" id="terminal"></div>
+  <div class="loading-bar-wrap" id="loadingWrap">
+    <div class="loading-bar" id="loadingBar"></div>
+  </div>
+  <div class="glitch-text" id="glitchTitle">🎂 19岁 · 新版本 · 已上线</div>
+  <div class="hint" id="hint">[ 点击屏幕，释放赛博烟花 ]</div>
+</div>
+
+<!-- ===== Scene 2: 赛博烟花 ===== -->
+<div id="scene2" class="scene">
+  <canvas id="fireworks-canvas"></canvas>
+</div>
+
+<!-- ===== Scene 3: 赛博诗篇 ===== -->
+<div id="scene3" class="scene">
+  <div class="grid-bg"></div>
+  <div class="poem-float" style="top:12%;left:8%;animation-delay:0s;color:#00ffff">✦</div>
+  <div class="poem-float" style="top:18%;right:10%;animation-delay:1.5s;color:#ff00ff">✦</div>
+  <div class="poem-float" style="top:50%;left:5%;animation-delay:0.8s;color:#39ff14;font-size:12px">19</div>
+  <div class="poem-float" style="top:60%;right:6%;animation-delay:2.2s;color:#ffff00;font-size:12px">★</div>
+  <div class="poem-float" style="top:75%;left:10%;animation-delay:1.2s;color:#ff6600">✦</div>
+  <div class="poem-float" style="top:85%;right:12%;animation-delay:3s;color:#ff1493">✦</div>
+  <div class="poem-terminal">
+    <div class="poem-line-wrap"><span class="poem-line l1" data-idx="0">数据流中闪烁你的轨迹，</span></div>
+    <div class="poem-line-wrap"><span class="poem-line l2" data-idx="1">十九圈年轮写入新协议，</span></div>
+    <div class="poem-line-wrap"><span class="poem-line l3" data-idx="2">所有的未知等待被解析，</span></div>
+    <div class="poem-line-wrap"><span class="poem-line l4" data-idx="3">你的时代 才刚刚开启。</span></div>
+    <div class="xfer-indicator" id="xferIndicator">
+      <span class="xfer-dot"></span><span class="xfer-dot"></span><span class="xfer-dot"></span>
+      <span class="xfer-label">// 数据传输完成 //</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Scene 4: 回忆星云 ===== -->
+<div id="scene4" class="scene">
+  <canvas id="nebula-canvas"></canvas>
+  <div class="nebula-title" id="nebulaTitle">
+    <span class="nebula-sign">♋</span>
+    <span class="nebula-text">19 年 · 星辰轨迹</span>
+    <span class="nebula-sub">巨蟹座的 19 颗星</span>
+  </div>
+  <div class="nebula-hint" id="nebulaHint">[ 点击，继续旅程 ]</div>
+</div>
+
+<!-- ===== Scene 5 ===== -->
+<div id="scene5" class="scene">
+  <div class="float-emoji" style="top:8%;left:10%;animation-delay:0s">🎂</div>
+  <div class="float-emoji" style="top:12%;right:12%;animation-delay:1s">✨</div>
+  <div class="float-emoji" style="top:25%;left:5%;animation-delay:2s;font-size:14px">19</div>
+  <div class="float-emoji" style="top:20%;right:8%;animation-delay:0.5s">🌟</div>
+  <div class="float-emoji" style="top:40%;left:8%;animation-delay:1.5s;font-size:14px">🎉</div>
+  <div class="float-emoji" style="top:35%;right:6%;animation-delay:2.5s">💫</div>
+  <div class="data-panel">
+    <div class="panel-label">// SYSTEM_MESSAGE //</div>
+    <div class="quote-text" id="quote">
+      <span>在<span class="cyan">光芒万丈</span>之前，</span><br>
+      <span>我们都要欣然接受眼下的<span class="glow">难堪和不易</span>，</span><br>
+      <span>接受一个人的<span class="cyan">孤独</span>和偶然<span class="cyan">无助</span>，</span><br>
+      <span>认真做好眼前的每一件事，</span><br>
+      <span>你想要的<span class="glow">都会有</span>。</span>
+    </div>
+  </div>
+  <div class="birthday-title" id="bdayTitle">🎂 Happy 19th<br>Birthday To Me</div>
+  <div class="birthday-sub" id="bdaySub">愿你继续闪闪发光 ✨</div>
+</div>
+
+<!-- ===== Scene 6: 祝福墙 ===== -->
+<div id="scene6" class="scene">
+  <div class="wall-title">💬 生日祝福墙</div>
+  <div class="wall-container" id="wallContainer">
+    <div class="wall-msg" style="color:#00ffff;top:12%;left:8%;animation-delay:0s">🎂 生日快乐！永远灿烂</div>
+    <div class="wall-msg" style="color:#ff00ff;top:20%;right:10%;animation-delay:1.2s">19岁，新征程！发光吧 ✨</div>
+    <div class="wall-msg" style="color:#39ff14;top:38%;left:5%;animation-delay:0.6s">愿你永远闪闪发光</div>
+    <div class="wall-msg" style="color:#ffff00;top:50%;right:6%;animation-delay:2.5s">代码无Bug，前路有光 🚀</div>
+    <div class="wall-msg" style="color:#ff6600;top:68%;left:12%;animation-delay:1s">做最酷的自己！🔥</div>
+    <div class="wall-msg" style="color:#ff1493;top:28%;left:52%;animation-delay:3.2s">万事胜意 未来可期 💫</div>
+    <div class="wall-msg" style="color:#7b68ee;top:45%;right:55%;animation-delay:1.8s">奔赴山海 不负热爱 🌊</div>
+    <div class="wall-msg" style="color:#00ff7f;top:62%;left:55%;animation-delay:2.8s">每一天都要闪闪发光</div>
+    <div class="wall-msg" style="color:#ff4500;top:75%;right:18%;animation-delay:0.4s">追梦路上 星辰为伴 🌟</div>
+    <div class="wall-msg" style="color:#ff69b4;top:15%;left:55%;animation-delay:3.6s">做自己的光 🔆</div>
+    <div class="wall-msg" style="color:#00bfff;top:55%;left:68%;animation-delay:4s">保持热爱 奔赴山海</div>
+    <div class="wall-msg" style="color:#ffd700;top:82%;left:42%;animation-delay:2.2s">19岁 一切皆有可能 ✨</div>
+  </div>
+  <div class="wall-bottom">
+    <div class="wall-input-area">
+      <input type="text" class="wall-input" id="wallInput" placeholder="写下你的祝福..." maxlength="30">
+      <button class="wall-send" id="wallSend">发送 ✦</button>
+    </div>
+    <button class="replay-btn" id="replayBtn">[ 重新体验 ]</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  STATE
+// ============================================================
+let currentScene = 1;
+const scenes = [null,
+  document.getElementById('scene1'),
+  document.getElementById('scene2'),
+  document.getElementById('scene3'),
+  document.getElementById('scene4'),
+  document.getElementById('scene5'),
+  document.getElementById('scene6')
+];
+let sceneReady = [false, false, false, false, false, false, false];
+let musicStarted = false;
+
+// ============================================================
+//  MUSIC TAP (iOS/Android autoplay workaround)
+// ============================================================
+const musicTap = document.getElementById('music-tap');
+const bgm = document.getElementById('bgm');
+
+musicTap.classList.add('show');
+musicTap.addEventListener('click', (e) => {
+  e.stopPropagation();
+  bgm.play().then(() => {}).catch(() => {});
+  musicTap.classList.remove('show');
+  musicStarted = true;
+  startScene1();
+});
+
+// ============================================================
+//  SCENE 1: 系统破解
+// ============================================================
+const terminalLines = [
+  '> INITIALIZING: BIRTHDAY.exe',
+  '> 正在加载 19年 的美好回忆...',
+  '> DETECTING: POTENTIAL · WARMTH · INFINITY',
+  '> 授权通过 —— 你值得世间所有美好',
+  '',
+  '>>> 系统提示：19岁版本的你 <<<'
+];
+
+function startScene1() {
+  const termEl = document.getElementById('terminal');
+  const loadWrap = document.getElementById('loadingWrap');
+  const loadBar = document.getElementById('loadingBar');
+  const glitchTitle = document.getElementById('glitchTitle');
+  const hint = document.getElementById('hint');
+
+  // Typewriter
+  let lineIdx = 0;
+  let charIdx = 0;
+
+  function typeLine() {
+    if (lineIdx >= terminalLines.length) {
+      // Start loading bar
+      loadWrap.classList.add('show');
+      startLoading();
+      return;
+    }
+    const text = terminalLines[lineIdx];
+    if (text === '') {
+      lineIdx++;
+      const p = document.createElement('div');
+      p.innerHTML = '&nbsp;';
+      termEl.appendChild(p);
+      setTimeout(typeLine, 200);
+      return;
+    }
+    const p = document.createElement('div');
+    p.className = 'line';
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    termEl.appendChild(p);
+    p.appendChild(document.createTextNode(''));
+    p.appendChild(cursor);
+
+    charIdx = 0;
+    function typeChar() {
+      if (charIdx < text.length) {
+        p.firstChild.textContent = text.slice(0, charIdx + 1);
+        charIdx++;
+        setTimeout(typeChar, 25 + Math.random() * 30);
+      } else {
+        p.classList.add('done');
+        p.removeChild(cursor);
+        lineIdx++;
+        setTimeout(typeLine, 300);
+      }
+    }
+    typeChar();
+  }
+
+  function startLoading() {
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 3 + 1;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        loadBar.style.width = '100%';
+        // Glitch!
+        document.body.style.animation = 'shake .3s';
+        document.body.style.transform = 'translate(3px, -2px)';
+        setTimeout(() => { document.body.style.transform = 'translate(-3px, 1px)'; }, 50);
+        setTimeout(() => { document.body.style.transform = 'translate(2px, 3px)'; }, 100);
+        setTimeout(() => { document.body.style.transform = 'translate(-2px, -1px)'; }, 150);
+        setTimeout(() => { document.body.style.transform = 'none'; }, 200);
+
+        setTimeout(() => {
+          loadWrap.style.display = 'none';
+          termEl.style.display = 'none';
+          glitchTitle.classList.add('show');
+          glitchTitle.classList.add('active');
+          setTimeout(() => glitchTitle.classList.remove('active'), 1200);
+          hint.style.display = 'block';
+          sceneReady[1] = true;
+        }, 500);
+      }
+      loadBar.style.width = progress + '%';
+    }, 40);
+  }
+
+  typeLine();
+}
+
+// Shake keyframes
+const styleSheet = document.createElement('style');
+styleSheet.textContent = `@keyframes shake{0%,100%{transform:translate(0)}20%{transform:translate(-4px,2px)}40%{transform:translate(4px,-2px)}60%{transform:translate(-2px,3px)}80%{transform:translate(2px,-3px)}}`;
+document.head.appendChild(styleSheet);
+
+// ============================================================
+//  SCENE 2: 赛博烟花 (Canvas Particles)
+// ============================================================
+const canvas = document.getElementById('fireworks-canvas');
+let ctx, W, H, particles = [], floatTexts = [], burstTexts = [], fireworksRunning = false, fireworkClicks = 0;
+const neonColors = ['#00ffff','#ff00ff','#39ff14','#ffff00','#ff6600','#ff1493'];
+const bdayMsgs = ['🎂 19','Happy','Birthday','🎉','19','★','✨'];
+
+function initCanvas() {
+  canvas.width = W = window.innerWidth;
+  canvas.height = H = window.innerHeight;
+  ctx = canvas.getContext('2d');
+}
+
+class Particle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 6 + 2;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1;
+    this.decay = Math.random() * 0.02 + 0.008;
+    this.size = Math.random() * 4 + 2;
+    this.color = neonColors[Math.floor(Math.random() * neonColors.length)];
+    this.isPixel = Math.random() > 0.5;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += 0.04;
+    this.vx *= 0.99;
+    this.life -= this.decay;
+  }
+  draw() {
+    if (!ctx || this.life <= 0) return;
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = this.color;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 10;
+    if (this.isPixel) {
+      ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+    } else {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+}
+
+class FloatText {
+  constructor() {
+    this.text = bdayMsgs[Math.floor(Math.random() * bdayMsgs.length)];
+    this.x = Math.random() * W;
+    this.y = H + 10;
+    this.speedY = -(Math.random() * 0.4 + 0.2);
+    this.speedX = (Math.random() - 0.5) * 0.2;
+    this.life = 1;
+    this.decay = 0.002;
+    this.color = neonColors[Math.floor(Math.random() * neonColors.length)];
+    this.size = Math.floor(Math.random() * 12 + 32);
+  }
+  update() {
+    this.y += this.speedY;
+    this.x += this.speedX;
+    this.life -= this.decay;
+  }
+  draw() {
+    if (!ctx || this.life <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = this.life * 0.85;
+    ctx.font = `bold ${this.size}px 'Orbitron',sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Glow
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(this.text, this.x, this.y);
+    // Neon overlay
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = this.color;
+    ctx.fillText(this.text, this.x - 1, this.y - 1);
+    ctx.restore();
+  }
+}
+
+class BurstText {
+  constructor(x, y) {
+    this.text = ['Happy','Birthday','🎂','19','🎉','✨','★'][Math.floor(Math.random()*7)];
+    this.x = x; this.y = y;
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 3 + 1.5;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed - 1;
+    this.life = 1;
+    this.decay = Math.random() * 0.015 + 0.005;
+    this.color = neonColors[Math.floor(Math.random() * neonColors.length)];
+    this.size = Math.floor(Math.random() * 10 + 18);
+  }
+  update() {
+    this.x += this.vx; this.y += this.vy;
+    this.vy += 0.03;
+    this.life -= this.decay;
+  }
+  draw() {
+    if (!ctx || this.life <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = this.life;
+    ctx.font = `bold ${this.size}px 'Orbitron',sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = this.color; ctx.shadowBlur = 20;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(this.text, this.x, this.y);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = this.color;
+    ctx.fillText(this.text, this.x-1, this.y-1);
+    ctx.restore();
+  }
+}
+
+function burstFireworks(x, y) {
+  for (let i = 0; i < 100; i++) {
+    particles.push(new Particle(x, y));
+  }
+  // 烟花爆裂文字 - 从点击点炸开
+  for (let i = 0; i < 8; i++) {
+    burstTexts.push(new BurstText(x, y));
+  }
+  // 每个烟花附带 2-3 个生日文字上升
+  const count = Math.floor(Math.random() * 2) + 2;
+  for (let i = 0; i < count; i++) {
+    floatTexts.push(new FloatText());
+  }
+}
+
+function animateFireworks() {
+  if (!fireworksRunning) return;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(10,10,15,.2)';
+  ctx.fillRect(0, 0, W, H);
+
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => { p.update(); p.draw(); });
+
+  floatTexts = floatTexts.filter(t => t.life > 0);
+  floatTexts.forEach(t => { t.update(); t.draw(); });
+
+  burstTexts = burstTexts.filter(b => b.life > 0);
+  burstTexts.forEach(b => { b.update(); b.draw(); });
+
+  requestAnimationFrame(animateFireworks);
+}
+
+canvas.addEventListener('click', (e) => {
+  if (currentScene !== 2) return;
+  const rect = canvas.getBoundingClientRect();
+  burstFireworks(e.clientX - rect.left, e.clientY - rect.top);
+  fireworkClicks++;
+  // 满5次烟花或5秒后自动进入下一场景
+  if (fireworkClicks >= 5 && !window._scene2Advancing) {
+    window._scene2Advancing = true;
+    setTimeout(() => {
+      goToScene(3);
+    }, 1500);
+  }
+});
+
+// ============================================================
+//  SCENE 3: 全息热爱
+// ============================================================
+function startScene3() {
+  const poemLines = document.querySelectorAll('.poem-line');
+  const xfer = document.getElementById('xferIndicator');
+  poemLines.forEach((el, i) => {
+    setTimeout(() => {
+      el.classList.add('glitch-in');
+      // After glitch, show normally
+      setTimeout(() => {
+        el.classList.remove('glitch-in');
+        el.classList.add('show');
+      }, 400);
+    }, 600 + i * 1000);
+  });
+  // Show transfer indicator after all lines
+  setTimeout(() => {
+    xfer.classList.add('show');
+    sceneReady[3] = true;
+  }, 600 + 4 * 1000 + 800);
+}
+
+// ============================================================
+//  SCENE 4: 未来宣言
+// ============================================================
+function startScene4() {
+  const quote = document.getElementById('quote');
+  const title = document.getElementById('bdayTitle');
+  const sub = document.getElementById('bdaySub');
+
+  setTimeout(() => quote.classList.add('show'), 500);
+  setTimeout(() => {
+    title.classList.add('show');
+    title.classList.add('glitch');
+    setTimeout(() => title.classList.remove('glitch'), 1000);
+  }, 2500);
+  setTimeout(() => { sub.classList.add('show'); }, 3200);
+  /* Note: this function is used for Scene 5 after swap */
+  sceneReady[5] = true;
+}
+
+// ============================================================
+//  SCENE 4: 回忆星云 (Canvas Constellation)
+// ============================================================
+const CANCER_STARS = [
+  {x:.5, y:.08, label:'1'}, {x:.3, y:.15, label:'2'}, {x:.15, y:.25, label:'3'},
+  {x:.25, y:.35, label:'4'}, {x:.4, y:.3, label:'5'}, {x:.5, y:.22, label:'6'},
+  {x:.6, y:.3, label:'7'}, {x:.7, y:.38, label:'8'}, {x:.55, y:.45, label:'9'},
+  {x:.4, y:.5, label:'10'}, {x:.25, y:.55, label:'11'}, {x:.35, y:.65, label:'12'},
+  {x:.5, y:.6, label:'13'}, {x:.65, y:.58, label:'14'}, {x:.78, y:.5, label:'15'},
+  {x:.72, y:.65, label:'16'}, {x:.6, y:.72, label:'17'}, {x:.45, y:.78, label:'18'},
+  {x:.35, y:.88, label:'19'}
+];
+const nebulaColors = ['#00ffff','#ff00ff','#39ff14','#ffff00','#ff6600','#ff1493','#7b68ee'];
+let nebulaCtx, nebulaW, nebulaH, nebulaStars = [], nebulaAnimId;
+let starIndex = 0, constellationLines = false;
+
+function initNebula() {
+  const c = document.getElementById('nebula-canvas');
+  c.width = nebulaW = window.innerWidth;
+  c.height = nebulaH = window.innerHeight;
+  nebulaCtx = c.getContext('2d');
+}
+
+class NebulaStar {
+  constructor(x, y, label, color) {
+    this.x = x; this.y = y; this.label = label;
+    this.color = color || nebulaColors[Math.floor(Math.random()*nebulaColors.length)];
+    this.size = 0; this.targetSize = Math.random()*3+3; this.pulse = 0;
+    this.alpha = 0; this.showLabel = false;
+    this.orbitAngle = Math.random()*Math.PI*2;
+  }
+  update() {
+    if (this.size < this.targetSize) this.size += 0.2;
+    if (this.alpha < 1) this.alpha += 0.05;
+    this.pulse = Math.sin(Date.now()/500 + this.orbitAngle)*0.3 + 0.7;
+    this.orbitAngle += 0.005;
+  }
+  draw(ctx) {
+    if (!ctx) return;
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    // Glow
+    const s = this.size * this.pulse;
+    ctx.shadowColor = this.color; ctx.shadowBlur = 20;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, s, 0, Math.PI*2); ctx.fill();
+    // Core white
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, s*0.4, 0, Math.PI*2); ctx.fill();
+    // Label
+    if (this.showLabel) {
+      ctx.font = '10px Orbitron,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color; ctx.shadowBlur = 8;
+      ctx.fillText(this.label, this.x, this.y - s - 10);
+    }
+    ctx.restore();
+  }
+}
+
+function startScene5() {
+  const c = document.getElementById('nebula-canvas');
+  c.style.display = 'block';
+  initNebula();
+  nebulaStars = [];
+  starIndex = 0; constellationLines = false;
+
+  // Create ambient background stars
+  for (let i = 0; i < 80; i++) {
+    nebulaStars.push(new NebulaStar(
+      Math.random()*nebulaW, Math.random()*nebulaH, '',
+      `rgba(255,255,255,${Math.random()*0.3+0.1})`
+    ));
+    nebulaStars[nebulaStars.length-1].targetSize = Math.random()*1.5+0.5;
+    nebulaStars[nebulaStars.length-1].size = nebulaStars[nebulaStars.length-1].targetSize;
+    nebulaStars[nebulaStars.length-1].alpha = Math.random()*0.5+0.3;
+  }
+
+  // Add Cancer constellation stars one by one
+  let idx = 0;
+  const addStar = setInterval(() => {
+    if (idx >= CANCER_STARS.length) {
+      clearInterval(addStar);
+      setTimeout(() => {
+        constellationLines = true;
+        document.getElementById('nebulaHint').classList.add('show');
+        sceneReady[4] = true;
+      }, 800);
+      return;
+    }
+    const s = CANCER_STARS[idx];
+    const star = new NebulaStar(s.x*nebulaW, s.y*nebulaH, s.label,
+      nebulaColors[idx % nebulaColors.length]);
+    star.targetSize = Math.random()*4+4;
+    setTimeout(() => { star.showLabel = true; }, 600);
+    nebulaStars.push(star);
+    idx++;
+  }, 350);
+
+  animateNebula();
+}
+
+function animateNebula() {
+  if (!nebulaCtx) return;
+  nebulaCtx.clearRect(0, 0, nebulaW, nebulaH);
+  // Dark gradient bg
+  const grad = nebulaCtx.createRadialGradient(nebulaW/2,nebulaH/2,0,nebulaW/2,nebulaH/2,nebulaW*0.6);
+  grad.addColorStop(0,'rgba(20,0,40,.3)'); grad.addColorStop(1,'rgba(0,0,0,0)');
+  nebulaCtx.fillStyle = grad;
+  nebulaCtx.fillRect(0, 0, nebulaW, nebulaH);
+
+  nebulaStars.forEach(s => { s.update(); s.draw(nebulaCtx); });
+
+  // Constellation lines (last 19 stars = the Cancer ones)
+  if (constellationLines) {
+    const constStars = nebulaStars.slice(-19);
+    nebulaCtx.save();
+    nebulaCtx.strokeStyle = 'rgba(0,255,255,.15)';
+    nebulaCtx.lineWidth = 0.5;
+    nebulaCtx.shadowColor = 'rgba(0,255,255,.1)';
+    nebulaCtx.shadowBlur = 5;
+    nebulaCtx.beginPath();
+    for (let i = 0; i < constStars.length-1; i++) {
+      nebulaCtx.moveTo(constStars[i].x, constStars[i].y);
+      nebulaCtx.lineTo(constStars[i+1].x, constStars[i+1].y);
+    }
+    nebulaCtx.stroke();
+    nebulaCtx.restore();
+  }
+
+  nebulaAnimId = requestAnimationFrame(animateNebula);
+}
+
+// ============================================================
+//  SCENE 6: 祝福墙
+// ============================================================
+let wallMessages = [];
+
+function addWallMessage(text, isNew) {
+  const container = document.getElementById('wallContainer');
+  const msg = document.createElement('div');
+  msg.className = 'wall-msg';
+  const color = neonColors[Math.floor(Math.random()*neonColors.length)];
+  msg.style.color = color;
+  msg.style.textShadow = `0 0 10px ${color}`;
+  msg.style.top = (Math.random()*70+10)+'%';
+  msg.style.left = (Math.random()*60+10)+'%';
+  msg.style.animationDelay = (Math.random()*3)+'s';
+  msg.style.fontSize = (Math.random()*4+14)+'px';
+  msg.textContent = text;
+  container.appendChild(msg);
+
+  // Remove oldest if too many
+  if (container.children.length > 20) container.removeChild(container.firstChild);
+
+  if (isNew) {
+    // Save to localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('bday_wishes') || '[]');
+      saved.push(text);
+      localStorage.setItem('bday_wishes', JSON.stringify(saved));
+    } catch(e) {}
+  }
+}
+
+function startScene6() {
+  // Load saved wishes
+  try {
+    const saved = JSON.parse(localStorage.getItem('bday_wishes') || '[]');
+    saved.forEach(w => addWallMessage(w, false));
+  } catch(e) {}
+  // Show replay button
+  document.getElementById('replayBtn').classList.add('show');
+  sceneReady[6] = true;
+  // Focus input
+  setTimeout(() => document.getElementById('wallInput').focus(), 500);
+}
+
+// Wall send handler
+document.getElementById('wallSend').addEventListener('click', () => {
+  const input = document.getElementById('wallInput');
+  const text = input.value.trim();
+  if (text) {
+    addWallMessage(text, true);
+    input.value = '';
+    input.focus();
+  }
+});
+document.getElementById('wallInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('wallSend').click();
+});
+
+// ============================================================
+//  NAVIGATION
+// ============================================================
+function goToScene(num) {
+  if (num < 1 || num > 6) return;
+  // fade out current
+  if (currentScene >= 1 && currentScene <= 4 && scenes[currentScene]) {
+    scenes[currentScene].classList.remove('active');
+    scenes[currentScene].classList.add('exit');
+  }
+  currentScene = num;
+  scenes[num].classList.remove('exit');
+  scenes[num].classList.add('active');
+
+  // Init per scene
+  if (num === 2 && !fireworksRunning) {
+    fireworkClicks = 0;
+    window._scene2Advancing = false;
+    initCanvas();
+    fireworksRunning = true;
+    animateFireworks();
+    // 15秒后没点够5次也自动推进
+    setTimeout(() => {
+      if (!window._scene2Advancing && currentScene === 2) {
+        window._scene2Advancing = true;
+        goToScene(3);
+      }
+    }, 15000);
+  }
+  if (num === 3) setTimeout(startScene3, 300);
+  if (num === 4) setTimeout(startScene5, 300);
+  if (num === 5) setTimeout(startScene4, 300);
+  if (num === 6) setTimeout(startScene6, 300);
+}
+
+// ============================================================
+//  GLOBAL CLICK -> NEXT SCENE
+// ============================================================
+document.addEventListener('click', (e) => {
+  // Skip canvas clicks (Scene 2 fireworks / Scene 5 nebula)
+  if (e.target === canvas || e.target.id === 'nebula-canvas') return;
+  // Skip replay button
+  if (e.target.id === 'replayBtn') return;
+  // Skip wall input area
+  if (e.target.id === 'wallInput' || e.target.id === 'wallSend') return;
+
+  if (currentScene === 1 && sceneReady[1]) {
+    goToScene(2);
+    return;
+  }
+  if (currentScene === 2) {
+    if (!window._scene2Advancing) {
+      window._scene2Advancing = true;
+      setTimeout(() => {
+        goToScene(3);
+      }, 1500);
+    }
+    return;
+  }
+  if (currentScene === 3 && sceneReady[3]) {
+    goToScene(4);
+    return;
+  }
+  if (currentScene === 4) {
+    goToScene(5);
+    return;
+  }
+  if (currentScene === 5 && sceneReady[5]) {
+    goToScene(6);
+    return;
+  }
+});
+
+// ============================================================
+//  REPLAY
+// ============================================================
+function resetAll() {
+  // Reset state
+  fireworksRunning = false;
+  particles = [];
+  floatTexts = [];
+  burstTexts = [];
+  fireworkClicks = 0;
+  window._scene2Advancing = false;
+  [1,2,3,4,5].forEach(i => sceneReady[i] = false);
+
+  // Reset Scene 1
+  const termEl = document.getElementById('terminal');
+  termEl.innerHTML = '';
+  termEl.style.display = '';
+  document.getElementById('loadingWrap').style.display = '';
+  document.getElementById('loadingWrap').classList.remove('show');
+  document.getElementById('loadingBar').style.width = '0%';
+  document.getElementById('glitchTitle').classList.remove('show');
+  document.getElementById('hint').style.display = 'none';
+
+  // Reset Scene 3
+  document.querySelectorAll('.poem-line').forEach(el => { el.classList.remove('show','glitch-in'); });
+  document.getElementById('xferIndicator').classList.remove('show');
+  // Reset Scene 4
+  document.getElementById('quote').classList.remove('show');
+  document.getElementById('bdayTitle').classList.remove('show');
+  document.getElementById('bdaySub').classList.remove('show');
+  document.getElementById('replayBtn').classList.remove('show');
+  // Reset Scene 5 (nebula)
+  if (nebulaAnimId) cancelAnimationFrame(nebulaAnimId);
+  nebulaStars = []; starIndex = 0; constellationLines = false;
+  const nebCanvas = document.getElementById('nebula-canvas');
+  if (nebCanvas) nebCanvas.style.display = 'none';
+  document.getElementById('nebulaHint').classList.remove('show');
+  // Reset Scene 6 (wall)
+  document.getElementById('replayBtn').classList.remove('show');
+  document.getElementById('wallInput').value = '';
+
+  goToScene(1);
+  setTimeout(startScene1, 300);
+}
+
+document.getElementById('replayBtn').addEventListener('click', resetAll);
+
+// ============================================================
+//  RESIZE
+// ============================================================
+window.addEventListener('resize', () => {
+  if (currentScene === 2) initCanvas();
+});
+
+// ============================================================
+//  If music was already started, kick Scene 1
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  // Page is ready
+});
+</script>
+
+</body>
+</html>
