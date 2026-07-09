@@ -1,509 +1,500 @@
-import math, gc, time
-from machine import ADC, PWM, Pin
-from machine import disable_irq, enable_irq
+from machine import ADC, Pin, PWM, Timer, Encoder
+import time
 
-# 全局配置（折中速度：慢于原版、快于上次低速版）
+# ===================== 引脚配置 =====================
 
-TRACK_CHANNEL_COUNT = 5
-TRACK_PINS = [27, 33, 32, 35, 34]           # s0~s4
-TRACK_ADC_ATTEN_DB = 11                     # 0~3.3V
-TRACK_ADC_WIDTH = 12                        # 0~4095
-TRACK_CENTROID_KP = 60.0                    # P: 位置误差 → 差速
-TRACK_CENTROID_KD = 50                   # D: 误差变化率 → 提前转向
-TRACK_LINE_IS_DARK = False                  # 白底黑线: 黑线通常 ADC 更低
-TRACK_NOISE_FLOOR = 80                      # ADC/对比度噪声地板
+ADC_PINS = [27, 33, 32, 35, 34]
 
-MOTOR_A_IN1, MOTOR_A_IN2 = 15, 13           # 电机A (右)
-MOTOR_B_IN1, MOTOR_B_IN2 = 25, 14           # 电机B (左)
-MOTOR_PWM_FREQ = 5000
-MOTOR_PWM_MAX = 65535
-MOTOR_DUTY_MAX_PCT = 68                     # 全局最大占空比，折中提速
-MOTOR_A_INVERT, MOTOR_B_INVERT = 1, 0       # 右轮机械反装
+M1_IN1_PIN = 13
+M1_IN2_PIN = 15
+M2_IN1_PIN = 14
+M2_IN2_PIN = 25
 
-LED_GPIO = 22
+PWM_FREQ = 20000
 
-ENC_A_A, ENC_A_B = 16, 17                   # 右编码器
-ENC_B_A, ENC_B_B = 18, 19                   # 左编码器
-ENC_SPIKE_LIMIT = 100
-ENC_LPF_ALPHA = 0.1
+MOTOR1_REVERSE = False
+MOTOR2_REVERSE = True
 
-MOTOR_LEFT_ENABLE, MOTOR_RIGHT_ENABLE = 1, 1
-PID_LEFT_KP, PID_LEFT_KI, PID_LEFT_KD = 0.3, 0.02, 0.0
-PID_RIGHT_KP, PID_RIGHT_KI, PID_RIGHT_KD = 0.3, 0.02, 0.0
-CTRL_STARTUP_DELAY = 1000                   # 2ms × 1000 = 2s
-CTRL_PERIOD_US = 2000
+# ===================== Encoder 配置 =====================
 
-TRACK_BASE_SPEED = 22                       # PID模式基准转速小幅提高
-USE_ENCODER_SPEED_PID = False                # 编码器稳定后再改 True
-OPEN_LOOP_BASE_DUTY = 34                    # 开环直行基础占空比，折中速度
-OPEN_LOOP_DIFF_GAIN = 0.36                  # 转向增益小幅提高，过弯响应更快
-OPEN_LOOP_DUTY_MAX_PCT = 40                 # 开环转弯最高占空比
-LOST_LINE_SPIN_DUTY =35                     # 丢线原地旋转速度小幅上调
-LOST_LINE_DEBOUNCE = 20                     # 连续丢线 N 帧后才触发旋转
+USE_ENCODER_INNER_PID = True
 
-DEBUG_SEND_INTERVAL = 100
+encoder_L = Encoder(0, Pin(17, Pin.IN), Pin(16, Pin.IN))
+encoder_R = Encoder(1, Pin(18, Pin.IN), Pin(19, Pin.IN))
 
-def _clamp(x, lo, hi):
-    if x < lo: return lo
-    if x > hi: return hi
-    return x
+ENC_LEFT_REVERSE = False
+ENC_RIGHT_REVERSE = False
 
-def _abs_val(x):
-    return -x if x < 0 else x
+PULSES_PER_SECOND_AT_100 = 91688.5    # 100%输出时编码器每秒脉冲数，需实测标定
 
-# PID 控制器
+# ===================== 循迹参数 =====================
 
-class PID:
-    MODE_INC = 0
-    MODE_POS = 1
+LINE_THRESHOLD = 80
+WEIGHTS = [-4, -1, 0, 1, 4]
 
-    def __init__(self, kp, ki, kd, target=0.0, integral_max=0.0):
-        self.kp, self.ki, self.kd = kp, ki, kd
-        self.target = target
-        self.control_value = 0.0
-        self._last_error = 0.0
-        self._before_last_error = 0.0
-        self._integral = 0.0
-        self._integral_max = 0.0
-        if integral_max == 0.0:
-            self._mode = self.MODE_INC
+BASE_SPEED = 68                      # 单位：百分比速度，不是PWM；允许大于100，但最终会按标定换算成编码器目标脉冲速度
+MAX_SPEED = 100                       # 100%速度对应 PULSES_PER_SECOND_AT_100
+LOST_TURN_SPEED = 75
+
+
+KEEP_LAST_ACTION_WHEN_LOST = 0 #丢线后动作
+LOST_ACTION_SCALE = 1.0
+LOST_ACTION_MAX_MS = 800
+LOST_ACTION_SAFE_SPEED = 35
+
+# 外环 PID
+KP = 16.0
+KI = 0.0
+KD = 16.0
+
+CORRECTION_LIMIT = 100 #最大允许修正量
+
+
+# 内环轮速 PID
+INNER_KP = 0.75
+INNER_KI = 0.08
+INNER_KD = 0.02
+INNER_INTEGRAL_LIMIT = 100.0
+
+CONTROL_PERIOD_MS = 20
+DEBUG_PRINT = True
+
+# ===================== 硬件初始化 =====================
+
+adcs = []
+for pin_num in ADC_PINS:
+    adc = ADC(Pin(pin_num))
+    adc.atten(ADC.ATTN_11DB)
+    adc.width(ADC.WIDTH_12BIT)
+    adcs.append(adc)
+
+pwm_m1_in1 = PWM(Pin(M1_IN1_PIN), freq=PWM_FREQ, duty=0)
+pwm_m1_in2 = PWM(Pin(M1_IN2_PIN), freq=PWM_FREQ, duty=0)
+pwm_m2_in1 = PWM(Pin(M2_IN1_PIN), freq=PWM_FREQ, duty=0)
+pwm_m2_in2 = PWM(Pin(M2_IN2_PIN), freq=PWM_FREQ, duty=0)
+
+# ===================== 全局状态 =====================
+
+control_flag = False
+
+last_error = 0.0
+integral = 0.0
+
+left_inner_integral = 0.0
+right_inner_integral = 0.0
+left_inner_last_error = 0.0
+right_inner_last_error = 0.0
+
+last_left_target = BASE_SPEED
+last_right_target = BASE_SPEED
+last_action_valid = False
+lost_start_time = None
+
+left_measured_speed = 0.0
+right_measured_speed = 0.0
+
+
+# ===================== 工具函数 =====================
+
+def clamp(value, low, high):
+    if value < low:
+        return low
+    if value > high:
+        return high
+    return value
+
+
+def speed_percent_to_encoder_speed(speed_percent):
+    """
+    把“百分比速度”转换成“每个控制周期的编码器目标脉冲数”。
+
+    PULSES_PER_SECOND_AT_100 表示 100%输出时，每秒编码器脉冲数。
+    CONTROL_PERIOD_MS=20 时：
+    100%目标速度 = 90000 * 20 / 1000 = 1800 脉冲/周期
+
+    所以 BASE_SPEED=300 表示 300%目标速度：
+    目标 = 90000 * 3.0 * 20 / 1000 = 5400 脉冲/周期
+
+    注意：这里不再把 300 限制成 100。
+    """
+    return speed_percent * PULSES_PER_SECOND_AT_100 * CONTROL_PERIOD_MS / 100000.0
+
+
+def pwm_percent_to_duty(pwm_percent):
+    """
+    把内环PID输出的PWM百分比转换成PWM duty。
+    只有最终给PWM硬件时才限制到 -100~100。
+    """
+    pwm_percent = clamp(pwm_percent, -100, 100)
+    return int(abs(pwm_percent) * 1023 / 100)
+
+
+def apply_motor_reverse(speed, reverse):
+    if reverse:
+        return -speed
+    return speed
+
+
+def set_motor1_pwm(pwm_percent):
+    pwm_percent = apply_motor_reverse(pwm_percent, MOTOR1_REVERSE)
+    duty = pwm_percent_to_duty(pwm_percent)
+
+    if pwm_percent > 0:
+        pwm_m1_in1.duty(duty)
+        pwm_m1_in2.duty(0)
+    elif pwm_percent < 0:
+        pwm_m1_in1.duty(0)
+        pwm_m1_in2.duty(duty)
+    else:
+        pwm_m1_in1.duty(0)
+        pwm_m1_in2.duty(0)
+
+
+def set_motor2_pwm(pwm_percent):
+    pwm_percent = apply_motor_reverse(pwm_percent, MOTOR2_REVERSE)
+    duty = pwm_percent_to_duty(pwm_percent)
+
+    if pwm_percent > 0:
+        pwm_m2_in1.duty(duty)
+        pwm_m2_in2.duty(0)
+    elif pwm_percent < 0:
+        pwm_m2_in1.duty(0)
+        pwm_m2_in2.duty(duty)
+    else:
+        pwm_m2_in1.duty(0)
+        pwm_m2_in2.duty(0)
+
+
+def set_motor(left_pwm_percent, right_pwm_percent):
+    set_motor1_pwm(left_pwm_percent)
+    set_motor2_pwm(right_pwm_percent)
+
+
+def stop():
+    set_motor(0, 0)
+
+
+# ===================== 定时器中断 =====================
+
+def TIMER_IRQHandler(tim):
+    global control_flag
+    control_flag = True
+
+
+timer = Timer(1)
+timer.init(period=CONTROL_PERIOD_MS, mode=Timer.PERIODIC, callback=TIMER_IRQHandler)
+
+
+# ===================== ADC 循迹 =====================
+
+def read_adc_values():
+    return [adc.read() for adc in adcs]
+
+
+def read_line_error():
+    raw_values = read_adc_values()
+
+    strengths = []
+    active = []
+
+    for value in raw_values:
+        strength = value - LINE_THRESHOLD
+
+        if strength > 0:
+            strengths.append(strength)
+            active.append(1)
         else:
-            self._mode = self.MODE_POS
-            if ki != 0.0:
-                self._integral_max = abs(integral_max / ki)
+            strengths.append(0)
+            active.append(0)
 
-    def set_target(self, target):
-        self.target = target
+    strength_sum = sum(strengths)
 
-    def update(self, measured):
-        if self._mode == self.MODE_INC:
-            self._update_inc(measured)
+    if strength_sum <= 0:
+        return None, raw_values, active
+
+    weighted_sum = 0.0
+
+    for i in range(5):
+        weighted_sum += WEIGHTS[i] * strengths[i]
+
+    error = weighted_sum / strength_sum
+
+    return error, raw_values, active
+
+
+# ===================== 外环 PID =====================
+
+def outer_pid_output(error):
+    global last_error, integral
+
+    integral += error
+    integral = clamp(integral, -20, 20)
+
+    derivative = error - last_error
+    last_error = error
+
+    correction = KP * error + KI * integral + KD * derivative
+    correction = clamp(correction, -CORRECTION_LIMIT, CORRECTION_LIMIT)
+
+    return correction
+
+
+# ===================== Encoder 测速 =====================
+
+def update_measured_wheel_speed(dt_ms):
+    global left_measured_speed, right_measured_speed
+
+    if not USE_ENCODER_INNER_PID:
+        left_measured_speed = 0.0
+        right_measured_speed = 0.0
+        return left_measured_speed, right_measured_speed
+
+    left_counts = encoder_L.value()
+    right_counts = encoder_R.value()
+
+    encoder_L.value(0)
+    encoder_R.value(0)
+
+    if ENC_LEFT_REVERSE:
+        left_counts = -left_counts
+    if ENC_RIGHT_REVERSE:
+        right_counts = -right_counts
+
+    # 这里改成“每个控制周期的编码器脉冲数”
+    # 不再换算成0~100百分比，否则会和 PULSES_PER_SECOND_AT_100 重复缩放
+    left_measured_speed = float(left_counts)
+    right_measured_speed = float(right_counts)
+
+    return left_measured_speed, right_measured_speed
+
+
+# ===================== 内环 PID =====================
+
+def inner_speed_pid(target_speed, measured_speed, side):
+    """
+    target_speed / measured_speed：编码器脉冲数/控制周期
+    返回值 command：PWM百分比，最终由 set_motor 转成 0~1023 duty
+    """
+    global left_inner_integral, right_inner_integral
+    global left_inner_last_error, right_inner_last_error
+
+    if abs(target_speed) < 1:
+        if side == "left":
+            left_inner_integral = 0.0
+            left_inner_last_error = 0.0
         else:
-            self._update_pos(measured)
-        return self.control_value
+            right_inner_integral = 0.0
+            right_inner_last_error = 0.0
+        return 0.0
 
-    def _update_inc(self, measured):
-        error = self.target - measured
-        delta_error = error - self._last_error
-        self.control_value += (
-            self.kp * delta_error
-            + self.ki * error
-            + self.kd * (delta_error - (self._last_error - self._before_last_error))
+    error = target_speed - measured_speed
+
+    if side == "left":
+        left_inner_integral += error
+        left_inner_integral = clamp(
+            left_inner_integral,
+            -INNER_INTEGRAL_LIMIT,
+            INNER_INTEGRAL_LIMIT
         )
-        self.control_value = max(-MOTOR_DUTY_MAX_PCT, min(MOTOR_DUTY_MAX_PCT, self.control_value))
-        self._before_last_error = self._last_error
-        self._last_error = error
+        derivative = error - left_inner_last_error
+        left_inner_last_error = error
 
-    def _update_pos(self, measured):
-        error = self.target - measured
-        self._integral += error
-        if self._integral_max > 0:
-            if self._integral > self._integral_max:
-                self._integral = self._integral_max
-            elif self._integral < -self._integral_max:
-                self._integral = -self._integral_max
-        self.control_value = (
-            self.kp * error + self.ki * self._integral
-            + self.kd * (error - self._last_error)
+        command = (
+            INNER_KP * error
+            + INNER_KI * left_inner_integral
+            + INNER_KD * derivative
         )
-        self._last_error = error
 
-    def reset(self):
-        self.control_value = 0.0
-        self._last_error = 0.0
-        self._before_last_error = 0.0
-        self._integral = 0.0
+    else:
+        right_inner_integral += error
+        right_inner_integral = clamp(
+            right_inner_integral,
+            -INNER_INTEGRAL_LIMIT,
+            INNER_INTEGRAL_LIMIT
+        )
+        derivative = error - right_inner_last_error
+        right_inner_last_error = error
 
-# 低通滤波器
+        command = (
+            INNER_KP * error
+            + INNER_KI * right_inner_integral
+            + INNER_KD * derivative
+        )
 
-class LowPassFilter:
-    def __init__(self, alpha=0.1):
-        self.alpha = alpha
-        self._last_output = 0.0
-        self._first = True
+    command = clamp(command, -100, 100)
 
-    @property
-    def value(self):
-        return self._last_output
+    return command
 
-    def update(self, value):
-        if self._first:
-            self._last_output = value
-            self._first = False
-        else:
-            self._last_output = self.alpha * value + (1.0 - self.alpha) * self._last_output
-        return self._last_output
 
-    def reset(self):
-        self._last_output = 0.0
-        self._first = True
+def apply_inner_speed_control(left_target, right_target):
+    if USE_ENCODER_INNER_PID:
+        left_cmd = inner_speed_pid(left_target, left_measured_speed, "left")
+        right_cmd = inner_speed_pid(right_target, right_measured_speed, "right")
+    else:
+        # 不用内环时，直接把目标速度百分比当作PWM百分比输出
+        left_cmd = left_target
+        right_cmd = right_target
 
-# 光电传感器 (ADC + 灰度质心)
+    left_cmd = clamp(left_cmd, -100, 100)
+    right_cmd = clamp(right_cmd, -100, 100)
 
-class TrackSensor:
-    def __init__(self):
-        self._adc = []
-        for gpio in TRACK_PINS:
-            a = ADC(Pin(gpio))
-            if TRACK_ADC_ATTEN_DB == 11:
-                a.atten(ADC.ATTN_11DB)
-            elif TRACK_ADC_ATTEN_DB == 6:
-                a.atten(ADC.ATTN_6DB)
-            else:
-                a.atten(ADC.ATTN_2_5DB)
-            if TRACK_ADC_WIDTH == 12:
-                a.width(ADC.WIDTH_12BIT)
-            elif TRACK_ADC_WIDTH == 11:
-                a.width(ADC.WIDTH_11BIT)
-            else:
-                a.width(ADC.WIDTH_10BIT)
-            self._adc.append(a)
+    set_motor(left_cmd, right_cmd)
 
-        self.raw = [0] * TRACK_CHANNEL_COUNT
-        self.centroid = 2.0
-        self.error = 0.0
-        self.diff = 0
-        self.lost_line = False
+    return left_cmd, right_cmd
 
-    def sample(self):
-        for i in range(TRACK_CHANNEL_COUNT):
-            self.raw[i] = self._adc[i].read()
 
-        if TRACK_LINE_IS_DARK:
-            ref = self.raw[0]
-            for i in range(1, TRACK_CHANNEL_COUNT):
-                if self.raw[i] > ref:
-                    ref = self.raw[i]
-        else:
-            ref = 0
+# ===================== 丢线处理 =====================
 
-        weighted = 0.0
-        total = 0.0
-        for i in range(TRACK_CHANNEL_COUNT):
-            if TRACK_LINE_IS_DARK:
-                v = max(0.0, float(ref - self.raw[i]) - TRACK_NOISE_FLOOR)
-            else:
-                v = max(0.0, float(self.raw[i]) - TRACK_NOISE_FLOOR)
-            weighted += i * v
-            total += v
+def get_lost_line_action():
+    global lost_start_time
 
-        if total > 0.0:
-            self.centroid = weighted / total
-        else:
-            self.centroid = 2.0
+    now = time.ticks_ms()
 
-        self.error = self.centroid - 2.0
-        self.diff = int(TRACK_CENTROID_KP * self.error)
-        rmax = self.raw[0]
-        rmin = self.raw[0]
-        for i in range(1, TRACK_CHANNEL_COUNT):
-            if self.raw[i] > rmax: rmax = self.raw[i]
-            if self.raw[i] < rmin: rmin = self.raw[i]
-        self.lost_line = (rmax - rmin) < TRACK_NOISE_FLOOR
-        return (self.error, self.diff)
+    if lost_start_time is None:
+        lost_start_time = now
 
-# 电机驱动
+    if KEEP_LAST_ACTION_WHEN_LOST and last_action_valid:
+        left_target = last_left_target * LOST_ACTION_SCALE
+        right_target = last_right_target * LOST_ACTION_SCALE
 
-class Motor:
-    def __init__(self, in1_gpio, in2_gpio, invert=False):
-        self._invert = invert
-        self._dbg_count = 0
+        if time.ticks_diff(now, lost_start_time) > LOST_ACTION_MAX_MS:
+            safe_target = speed_percent_to_encoder_speed(LOST_ACTION_SAFE_SPEED)
+            left_target = clamp(left_target, -safe_target, safe_target)
+            right_target = clamp(right_target, -safe_target, safe_target)
 
-        p1 = Pin(in1_gpio, Pin.OUT, value=0)
-        p2 = Pin(in2_gpio, Pin.OUT, value=0)
-        self._pwm1 = PWM(p1, freq=MOTOR_PWM_FREQ, duty=0)
-        self._pwm2 = PWM(p2, freq=MOTOR_PWM_FREQ, duty=0)
+        return left_target, right_target
 
-    def set(self, duty):
-        if self._invert:
-            duty = -duty
-        pct = max(-MOTOR_DUTY_MAX_PCT, min(MOTOR_DUTY_MAX_PCT, duty))
-        pwm_val = MOTOR_PWM_MAX - (abs(pct) * MOTOR_PWM_MAX // 100)
+    turn_target = speed_percent_to_encoder_speed(LOST_TURN_SPEED)
 
-        if duty > 0:
-            self._pwm1.duty_u16(pwm_val)
-            self._pwm2.duty_u16(MOTOR_PWM_MAX)
-        elif duty < 0:
-            self._pwm1.duty_u16(MOTOR_PWM_MAX)
-            self._pwm2.duty_u16(pwm_val)
-        else:
-            self._pwm1.duty_u16(0)
-            self._pwm2.duty_u16(0)
+    if last_error < 0:
+        return -turn_target, turn_target
 
-        # 启动后首次有输出了, 打印确认
-        if pct > 0 and self._dbg_count < 3:
-            self._dbg_count += 1
-            print("MOTOR pid=%d pct=%d pwm=%d/%d" % (duty, pct, pwm_val, MOTOR_PWM_MAX))
+    if last_error > 0:
+        return turn_target, -turn_target
 
-    def stop(self):
-        self._pwm1.duty_u16(0)
-        self._pwm2.duty_u16(0)
+    forward_target = speed_percent_to_encoder_speed(BASE_SPEED)
+    return forward_target, forward_target
 
-class MotorDriver:
-    def __init__(self):
-        self.motor_a = Motor(MOTOR_A_IN1, MOTOR_A_IN2, invert=bool(MOTOR_A_INVERT))
-        self.motor_b = Motor(MOTOR_B_IN1, MOTOR_B_IN2, invert=bool(MOTOR_B_INVERT))
 
-    def set(self, left, right):
-        self.motor_b.set(left)
-        self.motor_a.set(right)
+# ===================== 单次循迹控制 =====================
 
-    def stop(self):
-        self.motor_a.stop()
-        self.motor_b.stop()
+def line_follow_step(dt_ms):
+    global last_left_target, last_right_target
+    global last_action_valid, lost_start_time
 
-# 编码器 (Pin 中断正交解码)
+    update_measured_wheel_speed(dt_ms)
 
-class Encoder:
-    DEBOUNCE_US = 150  # 消抖窗口: 150us, 太大会在高转速下丢掉脉冲
+    error, raw_values, active = read_line_error()
 
-    def __init__(self, pin_a_num, pin_b_num, invert=False):
-        self._invert = invert
-        self._count = 0
-        self._last_tick = 0
-        self._pin_b = Pin(pin_b_num, Pin.IN, Pin.PULL_UP)
-        pin_a = Pin(pin_a_num, Pin.IN, Pin.PULL_UP)
-        pin_a.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=self._isr)
+    if error is None:
+        left_target, right_target = get_lost_line_action()
+        left_cmd, right_cmd = apply_inner_speed_control(left_target, right_target)
 
-    def _isr(self, pin):
-        t = time.ticks_us()
-        if t - self._last_tick < self.DEBOUNCE_US:
-            return
-        self._last_tick = t
-        if self._pin_b.value():
-            self._count += 1
-        else:
-            self._count -= 1
+        return (
+            raw_values,
+            active,
+            None,
+            0,
+            left_target,
+            right_target,
+            left_cmd,
+            right_cmd,
+            True
+        )
 
-    def read_and_clear(self):
-        state = disable_irq()
-        cnt = self._count
-        self._count = 0
-        enable_irq(state)
-        if self._invert:
-            cnt = -cnt
-        return cnt
+    lost_start_time = None
 
-class EncoderPair:
-    def __init__(self):
-        self.left = Encoder(ENC_B_A, ENC_B_B, invert=False)
-        self.right = Encoder(ENC_A_A, ENC_A_B, invert=True)
+    correction_percent = outer_pid_output(error)
 
-    def read(self):
-        return (self.left.read_and_clear(), self.right.read_and_clear())
+    # 外环仍然按“百分比速度”修正，然后统一换算成编码器目标速度
+    left_target_percent = BASE_SPEED + correction_percent
+    right_target_percent = BASE_SPEED - correction_percent
 
-#  Debug 输出
+    left_target = speed_percent_to_encoder_speed(left_target_percent)
+    right_target = speed_percent_to_encoder_speed(right_target_percent)
 
-class DebugOutput:
-    def __init__(self):
-        self._count = 0
+    last_left_target = left_target
+    last_right_target = right_target
+    last_action_valid = True
 
-    def send_frame(self, data, ld, rd):
-        self._count += 1
-        print("[%5d %s] raw=%4d %4d %4d %4d %4d  c=%.2f e=%+.2f  "
-              "Tl=%5.1f Tr=%5.1f  Ml=%5.1f Mr=%5.1f  Dl=%+3d Dr=%+3d" % (
-            self._count,
-            "pid" if USE_ENCODER_SPEED_PID else "open",
-            int(data[0]), int(data[1]), int(data[2]), int(data[3]), int(data[4]),
-            data[5], data[6],
-            data[7], data[8],
-            data[9], data[10],
-            ld, rd))
+    left_cmd, right_cmd = apply_inner_speed_control(left_target, right_target)
 
-# 控制循环
+    return (
+        raw_values,
+        active,
+        error,
+        correction_percent,
+        left_target,
+        right_target,
+        left_cmd,
+        right_cmd,
+        False
+    )
 
-class WheelControl:
-    def __init__(self, enable, kp, ki, kd):
-        self.pid = PID(kp, ki, kd, target=0.0, integral_max=0.0)
-        self.lpf = LowPassFilter(alpha=ENC_LPF_ALPHA)
-        self.prev_count = 0
-        self.duty = 0
-        self.enable = enable
 
-    def reset(self):
-        self.pid.reset()
-        self.lpf.reset()
-        self.prev_count = 0
-        self.duty = 0
-
-class ControlLoop:
-    def __init__(self):
-        self.sensor = TrackSensor()
-        self.motor = MotorDriver()
-        self.encoder = EncoderPair()
-        self.debug = DebugOutput()
-
-        self.left = WheelControl(
-            bool(MOTOR_LEFT_ENABLE), PID_LEFT_KP, PID_LEFT_KI, PID_LEFT_KD)
-        self.right = WheelControl(
-            bool(MOTOR_RIGHT_ENABLE), PID_RIGHT_KP, PID_RIGHT_KI, PID_RIGHT_KD)
-
-        self._startup_tick = 0
-        self._last_diff = 0
-        self._last_error = 0.0
-        self._step_count = 0
-        self._lost_count = 0
-
-    def _diff_from_error(self, error):
-        diff = int(TRACK_CENTROID_KP * error
-                   + TRACK_CENTROID_KD * (error - self._last_error))
-        self._last_error = error
-        abs_err = abs(error)
-        if abs_err > 1.0:
-            alpha = 0.7   # 大弯 → 快速跟上
-        elif abs_err > 0.3:
-            alpha = 0.4   # 中等 → 正常
-        else:
-            alpha = 0.25  # 直道 → 强滤波防抖
-        self._last_diff = int((1.0 - alpha) * self._last_diff + alpha * diff)
-        return self._last_diff
-
-    @staticmethod
-    def _spike_filter(cur, prev):
-        if _abs_val(cur - prev) > ENC_SPIKE_LIMIT:
-            return prev
-        return cur
-
-    def _wheel_control(self, w, target, active):
-        if (not active) or (not w.enable):
-            w.pid.reset()
-            w.duty = 0
-            return
-        w.pid.set_target(target if active else 0.0)
-        w.pid.update(w.lpf.value)
-        cv = w.pid.control_value
-        w.duty = int(_clamp(cv, -MOTOR_DUTY_MAX_PCT, MOTOR_DUTY_MAX_PCT))
-
-    def _open_loop_control(self, half_diff, active):
-        if not active:
-            self.left.reset()
-            self.right.reset()
-            return
-        
-
-        turn = half_diff * OPEN_LOOP_DIFF_GAIN
-        if self.left.enable:
-            self.left.duty = int(_clamp(OPEN_LOOP_BASE_DUTY + turn,
-                                        -OPEN_LOOP_DUTY_MAX_PCT,
-                                        OPEN_LOOP_DUTY_MAX_PCT))
-        else:
-            self.left.duty = 0
-
-        if self.right.enable:
-            self.right.duty = int(_clamp(OPEN_LOOP_BASE_DUTY - turn,
-                                         -OPEN_LOOP_DUTY_MAX_PCT,
-                                         OPEN_LOOP_DUTY_MAX_PCT))
-        else:
-            self.right.duty = 0
-
-    def _debug_frame(self, tl, tr):
-        jf = [float(self.sensor.raw[i]) for i in range(TRACK_CHANNEL_COUNT)]
-        jf.append(self.sensor.centroid)
-        jf.append(self.sensor.error)
-        jf.append(tl)
-        jf.append(tr)
-        jf.append(self.left.lpf.value)
-        jf.append(self.right.lpf.value)
-        return jf
-
-    def step(self):
-        self._step_count += 1
-
-        error, _ = self.sensor.sample()
-
-        if self.sensor.lost_line and self._startup_tick >= CTRL_STARTUP_DELAY:
-            self._lost_count += 1
-        else:
-            self._lost_count = 0
-
-        if self._lost_count >= LOST_LINE_DEBOUNCE:
-            if self._lost_count == LOST_LINE_DEBOUNCE:
-                print("LOST LINE: spinning (raw=%s)" % self.sensor.raw)
-            self.left.duty = -LOST_LINE_SPIN_DUTY
-            self.right.duty = LOST_LINE_SPIN_DUTY
-            self.motor.set(self.left.duty, self.right.duty)
-            return
-
-        raw_left, raw_right = self.encoder.read()
-        fl = self._spike_filter(raw_left, self.left.prev_count)
-        self.left.prev_count = fl
-        self.left.lpf.update(float(fl))
-
-        fr = self._spike_filter(raw_right, self.right.prev_count)
-        self.right.prev_count = fr
-        self.right.lpf.update(float(fr))
-
-        diff_smoothed = self._diff_from_error(error)
-        half_diff = int(diff_smoothed / 2)
-        target_left = float(TRACK_BASE_SPEED + half_diff)
-        target_right = float(TRACK_BASE_SPEED - half_diff)
-
-        self._startup_tick += 1
-        active = self._startup_tick >= CTRL_STARTUP_DELAY
-        if USE_ENCODER_SPEED_PID:
-            self._wheel_control(self.left, target_left, active)
-            self._wheel_control(self.right, target_right, active)
-        else:
-            self._open_loop_control(half_diff, active)
-
-        self.motor.set(self.left.duty, self.right.duty)
-
-        if self._step_count % DEBUG_SEND_INTERVAL == 0:
-            self.debug.send_frame(self._debug_frame(target_left, target_right),
-                                  self.left.duty, self.right.duty)
-
-# 主入口 主循环 2ms 调度
-
-_loop = None
-_led = None
-_led_phase = 0.0
-
-def _ticks_due(now, deadline):
-    return time.ticks_diff(now, deadline) >= 0
-
-def _led_step():
-    global _led, _led_phase
-    if _led is None:
-        return
-    duty = int((math.sin(_led_phase) + 1.0) / 2.0 * MOTOR_PWM_MAX)
-    _led.duty_u16(duty)
-    _led_phase += 0.02
-    if _led_phase > 2.0 * math.pi:
-        _led_phase -= 2.0 * math.pi
+# ===================== 主程序 =====================
 
 def main():
-    global _loop, _led
+    global control_flag
 
-    _led = PWM(Pin(LED_GPIO), freq=5000, duty=0)
-    _loop = ControlLoop()
+    print("ESP32 5ADC line follower started")
+    print("Encoder uses machine.Encoder")
+    print("Timer interrupt only sets control_flag")
+    print("ADC pins:", ADC_PINS)
+    print("Motor1 PWM pins:", M1_IN1_PIN, M1_IN2_PIN)
+    print("Motor2 PWM pins:", M2_IN1_PIN, M2_IN2_PIN)
+    print("Black line condition: ADC >=", LINE_THRESHOLD)
+    print("Weights:", WEIGHTS)
+    print("BASE_SPEED percent:", BASE_SPEED)
+    print("PULSES_PER_SECOND_AT_100:", PULSES_PER_SECOND_AT_100)
+    print("100 percent target per period:", speed_percent_to_encoder_speed(100))
+    print("BASE target per period:", speed_percent_to_encoder_speed(BASE_SPEED))
+    print("LOST_TURN_SPEED percent:", LOST_TURN_SPEED)
 
-    gc.collect()
-    print("wayTrack ready | pid=%s | kp=%.0f kd=%.0f | diff_gain=%.2f | base=%d" % (
-          "on" if USE_ENCODER_SPEED_PID else "open",
-          TRACK_CENTROID_KP, TRACK_CENTROID_KD,
-          OPEN_LOOP_DIFF_GAIN, OPEN_LOOP_BASE_DUTY))
-    print("running (startup delay: %d ms)" % (CTRL_STARTUP_DELAY * 2))
+    last_time = time.ticks_ms()
 
-    next_ctrl = time.ticks_us()
-    next_led = time.ticks_ms()
     try:
         while True:
-            now_us = time.ticks_us()
-            if _ticks_due(now_us, next_ctrl):
-                _loop.step()
-                next_ctrl = time.ticks_add(next_ctrl, CTRL_PERIOD_US)
-                if time.ticks_diff(now_us, next_ctrl) > CTRL_PERIOD_US * 4:
-                    next_ctrl = time.ticks_add(now_us, CTRL_PERIOD_US)
+            if control_flag:
+                control_flag = False
 
-            now_ms = time.ticks_ms()
-            if _ticks_due(now_ms, next_led):
-                _led_step()
-                next_led = time.ticks_add(next_led, 10)
+                now = time.ticks_ms()
+                dt_ms = time.ticks_diff(now, last_time)
+                last_time = now
 
-            time.sleep_ms(0)
+                raw, active, error, correction, lt, rt, lc, rc, lost = line_follow_step(dt_ms)
+
+                if DEBUG_PRINT:
+                    print(
+                        "raw:", raw,
+                        "line:", active,
+                        "err:", error,
+                        "corr_percent:", round(correction, 2),
+                        "target_count:", [round(lt, 1), round(rt, 1)],
+                        "meas_count:", [
+                            round(left_measured_speed, 1),
+                            round(right_measured_speed, 1)
+                        ],
+                        "pwm_percent:", [round(lc, 1), round(rc, 1)],
+                        "lost:", lost
+                    )
+
+            time.sleep_ms(1)
+
     except KeyboardInterrupt:
-        _loop.motor.stop()
-        _led.duty_u16(0)
-        raise
+        stop()
+        timer.deinit()
+        pwm_m1_in1.deinit()
+        pwm_m1_in2.deinit()
+        pwm_m2_in1.deinit()
+        pwm_m2_in2.deinit()
+        print("Stopped")
 
-main()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
