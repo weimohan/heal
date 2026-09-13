@@ -1,0 +1,32 @@
+{
+  "dataset_id": "cryptoaudit-targeted-v2",
+  "dataset_type": "hand_authored_synthetic",
+  "description": "针对消息通信、密钥管理和口令派生参数的本地 AST 规则回归集",
+  "purpose": "验证扩展规则能够覆盖典型风险，同时不误报安全参数和常量时间比较",
+  "label_basis": "expected_rules、expected_algorithms 和 expected_lines 由项目作者根据每个最小样例的安全意图手工标注",
+  "limitations": [
+    "样例是人工编写的最小代码片段，不代表真实生产代码分布",
+    "指标只反映与当前标注集的一致性，不能外推为生产环境检出率",
+    "跨文件数据流、运行时配置和真实协议兼容性仍需要人工复核"
+  ],
+  "cases": [
+    {"case_id":"v2-01-rc4","source":"from Crypto.Cipher import RC4\ncipher = RC4.new(key)\n","expected_rules":["CRYPTO-RC4-001"],"expected_algorithms":["RC4"],"expected_lines":{"CRYPTO-RC4-001":[2]}},
+    {"case_id":"v2-02-md4","source":"import hashlib\ndigest = hashlib.md4(data).digest()\n","expected_rules":["CRYPTO-HASH-001"],"expected_algorithms":["MD4"],"expected_lines":{"CRYPTO-HASH-001":[2]}},
+    {"case_id":"v2-03-hmac-md5","source":"import hashlib\nimport hmac\nmac = hmac.new(key, data, hashlib.md5)\n","expected_rules":["CRYPTO-HMAC-001"],"expected_algorithms":["MD5"],"expected_lines":{"CRYPTO-HMAC-001":[3]}},
+    {"case_id":"v2-04-shared-secret","source":"SHARED_SECRET = \"demo-shared-secret\"\n","expected_rules":["CRYPTO-SECRET-001"],"expected_lines":{"CRYPTO-SECRET-001":[1]},"secret_literals":["demo-shared-secret"]},
+    {"case_id":"v2-05-fixed-iv","source":"IV = b\"\\x00\" * 16\n","expected_rules":["CRYPTO-IV-001"],"expected_lines":{"CRYPTO-IV-001":[1]}},
+    {"case_id":"v2-06-short-rsa","source":"from Crypto.PublicKey import RSA\nkey = RSA.generate(512)\n","expected_rules":["CRYPTO-RSA-KEYSIZE-001"],"expected_algorithms":["RSA"],"expected_lines":{"CRYPTO-RSA-KEYSIZE-001":[2]}},
+    {"case_id":"v2-07-cbc-fixed-iv","source":"from Crypto.Cipher import AES\ncipher = AES.new(key, AES.MODE_CBC, iv=b\"\\x01\" * 16)\n","expected_rules":["CRYPTO-IV-001"],"expected_algorithms":["AES"],"expected_lines":{"CRYPTO-IV-001":[2]}},
+    {"case_id":"v2-08-pbkdf2-iterations","source":"import hashlib\ndk = hashlib.pbkdf2_hmac(\"sha256\", password, salt, iterations=100)\n","expected_rules":["CRYPTO-PBKDF2-001"],"expected_algorithms":["PBKDF2"],"expected_lines":{"CRYPTO-PBKDF2-001":[2]}},
+    {"case_id":"v2-09-pbkdf2-md5","source":"import hashlib\ndk = hashlib.pbkdf2_hmac(\"md5\", password, salt, iterations=200000)\n","expected_rules":["CRYPTO-PBKDF2-HASH-001"],"expected_algorithms":["PBKDF2"],"expected_lines":{"CRYPTO-PBKDF2-HASH-001":[2]}},
+    {"case_id":"v2-10-log-secret","source":"import os\nSHARED_SECRET = os.environ[\"SHARED_SECRET\"]\nprint(f\"debug key={SHARED_SECRET}\")\n","expected_rules":["CRYPTO-LOG-LEAK-001"],"expected_lines":{"CRYPTO-LOG-LEAK-001":[3]}},
+    {"case_id":"v2-11-crc32","source":"import binascii\ndef checksum(data):\n    return binascii.crc32(data)\n","expected_rules":["CRYPTO-CHECKSUM-001"],"expected_algorithms":["CRC32"],"expected_lines":{"CRYPTO-CHECKSUM-001":[3]}},
+    {"case_id":"v2-12-session-md5","source":"import hashlib\ndef make_token(user_id):\n    return hashlib.md5(user_id.encode()).hexdigest()\n","expected_rules":["CRYPTO-HASH-001"],"expected_algorithms":["MD5"],"expected_lines":{"CRYPTO-HASH-001":[3]}},
+    {"case_id":"v2-13-fixed-gcm-nonce","source":"from Crypto.Cipher import AES\nnonce = b\"fixed-nonce\"\ncipher = AES.new(key, AES.MODE_GCM, nonce=nonce)\n","expected_rules":["CRYPTO-NONCE-001"],"expected_algorithms":["AES"],"expected_lines":{"CRYPTO-NONCE-001":[3]}},
+    {"case_id":"v2-14-key-in-token","source":"import os\nMASTER_KEY = os.environ[\"MASTER_KEY\"]\ntoken_data = f\"{user_id}_{MASTER_KEY}\"\n","expected_rules":["CRYPTO-KEY-LEAK-001"],"expected_lines":{"CRYPTO-KEY-LEAK-001":[3]}},
+    {"case_id":"v2-15-sensitive-compare","source":"if computed_hash == stored_hash:\n    accept()\n","expected_rules":["CRYPTO-COMPARE-001"],"expected_lines":{"CRYPTO-COMPARE-001":[1]}},
+    {"case_id":"v2-16-safe-gcm","source":"from Crypto.Cipher import AES\nfrom secrets import token_bytes\nnonce = token_bytes(12)\ncipher = AES.new(key, AES.MODE_GCM, nonce=nonce)\n","expected_rules":[],"expected_algorithms":["AES"]},
+    {"case_id":"v2-17-safe-secret-source","source":"import os\nMASTER_KEY = os.environ[\"MASTER_KEY\"]\n","expected_rules":[]},
+    {"case_id":"v2-18-safe-compare","source":"import hmac\nif hmac.compare_digest(expected, provided):\n    accept()\n","expected_rules":[]}
+  ]
+}

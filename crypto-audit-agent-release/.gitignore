@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# 密钥与环境（绝不提交真实凭证）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+id_ed25519
+id_rsa
+
+# 运行产物（生成在 runtime/ 下的审查结果不入库）
+runtime/
+checkpoints/
+runtime_version/
+
+# 本地工具产出的临时探针
+.streamlit_probe/
+
+# 操作系统与编辑器
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
